@@ -1,0 +1,86 @@
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>org.example</groupId>
+    <artifactId>gcp-cloud-function</artifactId>
+    <version>1.0.0</version>
+    <!-- Defines the packaging type; JAR is required for Google Cloud Functions -->
+    <packaging>jar</packaging>
+
+    <!-- Project metadata -->
+    <name>GCP Cloud Function</name>
+    <description>A Google Cloud Function written in Java that accepts a query parameter</description>
+
+    <!-- Properties: Define reusable variables for Java version and function framework -->
+    <properties>
+        <java.version>17</java.version>  <!-- Using Java 17 as the runtime -->
+        <functions-framework.version>1.0.4</functions-framework.version> <!-- Version of Functions Framework -->
+    </properties>
+
+    <dependencies>
+        <!-- Google Cloud Functions Framework (Required for running functions locally
+        and deploying) -->
+        <dependency>
+            <groupId>com.google.cloud.functions</groupId>
+            <artifactId>functions-framework-api</artifactId>
+            <version>${functions-framework.version}</version>
+        </dependency>
+
+        <!-- JSON Processing Library (Optional, useful if handling JSON in requests/responses) -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.8.6</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Compiler Plugin (Ensures that Java 17 is used for compiling) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.8.1</version>
+                <configuration>
+                    <source>${java.version}</source>  <!-- Java source compatibility -->
+                    <target>${java.version}</target>  <!-- Java target compatibility -->
+                </configuration>
+            </plugin>
+
+            <!-- Maven Shade Plugin (Packages dependencies into a single JAR for deployment) -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.2.4</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>  <!-- Runs during the package phase -->
+                        <goals>
+                            <goal>shade</goal>  <!-- Bundles dependencies into a single JAR -->
+                        </goals>
+                        <configuration>
+                            <shadedArtifactAttached>true</shadedArtifactAttached>
+                            <shadedClassifierName>fatjar</shadedClassifierName>
+                            <outputFile>${project.build.directory}/deployment/${project.build.finalName}.jar</outputFile>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Google Cloud Functions Maven Plugin (For Local Execution & Debugging) -->
+            <plugin>
+                <groupId>com.google.cloud.functions</groupId>
+                <artifactId>function-maven-plugin</artifactId>
+                <version>0.9.4</version>
+                <configuration>
+                    <functionTarget>org.example.HelloWorldFunction</functionTarget> <!-- The fully qualified function class -->
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
