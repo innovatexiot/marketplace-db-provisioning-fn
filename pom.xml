@@ -3,8 +3,8 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
 
     <modelVersion>4.0.0</modelVersion>
-    <groupId>org.example</groupId>
-    <artifactId>gcp-cloud-function</artifactId>
+    <groupId>com.andevs.marketplace.function</groupId>
+    <artifactId>db-provisioning</artifactId>
     <version>1.0.0</version>
     <!-- Defines the packaging type; JAR is required for Google Cloud Functions -->
     <packaging>jar</packaging>
@@ -78,7 +78,7 @@
                 <artifactId>function-maven-plugin</artifactId>
                 <version>0.9.4</version>
                 <configuration>
-                    <functionTarget>org.example.HelloWorldFunction</functionTarget> <!-- The fully qualified function class -->
+                    <functionTarget>com.andevs.marketplace.function.HelloWorldFunction</functionTarget> <!-- The fully qualified function class -->
                 </configuration>
             </plugin>
         </plugins>

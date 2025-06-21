@@ -21,7 +21,7 @@ mvn clean package
 
 ## Run the Function Locally
 mvn function:run
-mvn function:run "-Drun.functionTarget=org.example.HelloWorldFunction"
+mvn function:run "-Drun.functionTarget=com.andevs.marketplace.function.HelloWorldFunction"
 
 ## Test the Function Locally
 curl "http://localhost:8080/?name=Java"
@@ -35,7 +35,7 @@ gcloud functions deploy helloFunction \
   --runtime java17 \
   --trigger-http \
   --allow-unauthenticated \
-  --entry-point org.example.HelloWorldFunction \
+  --entry-point com.andevs.marketplace.function.HelloWorldFunction \
   --region us-central1
 
 ## Get the Function URL
