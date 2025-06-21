@@ -11,8 +11,8 @@ steps:
       - --runtime=java17
       - --trigger-event-filters=type=google.cloud.firestore.document.v1.created
       - --trigger-event-filters=database=(default)
-      - --trigger-location=us-central1
-      - --region=us-central1
+      - --trigger-location=us-east1
+      - --region=us-east1
       - --memory=512MB
       - --timeout=540s
       - --set-env-vars=FUNCTION_SIGNATURE_TYPE=event
