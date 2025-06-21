@@ -10,7 +10,10 @@ public class HelloWorldFunction implements CloudEventsFunction {
     public void accept(CloudEvent event) throws Exception {
 
         System.out.println("New event received: " + event);
-        System.out.println("json: " + new Gson().toJson(event));
+        System.out.println("Event type: " + event.getType());
+        System.out.println("Event source: " + event.getSource());
+        System.out.println("Event data: " + new String(event.getData().toBytes()));
+        System.out.println("Event json: " + new Gson().toJson(event));
     }
 }
 
