@@ -1,22 +1,10 @@
 steps:
-  # Build and deploy the function
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
-    entrypoint: gcloud
     args:
+      - gcloud
       - functions
       - deploy
       - marketplace-db-provisioning-fn
-      - --source=.
-      - --entry-point=com.andevs.marketplace.function.HelloWorldFunction
-      - --runtime=java17
-      - --trigger-event-filters=type=google.cloud.firestore.document.v1.created
-      - --trigger-event-filters=database=(default)
-      - --trigger-location=us-east1
       - --region=us-east1
-      - --memory=512MB
-      - --timeout=540s
-      - --set-env-vars=FUNCTION_SIGNATURE_TYPE=event
-      - --gen2
-
-options:
-  logging: CLOUD_LOGGING_ONLY 
+      - --source=.
+      - --trigger-http
