@@ -1,10 +1,14 @@
 steps:
-  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  - name: 'gcr.io/google.com/cloudsdktool/gcloud'
+    entrypoint: 'gcloud'
     args:
-      - gcloud
-      - functions
-      - deploy
-      - marketplace-db-provisioning-fn
-      - --region=us-east1
-      - --source=.
-      - --trigger-http
+      - 'functions'
+      - 'deploy'
+      - 'marketplace-db-provisioning-fn'
+      - '--gen2'
+      - '--runtime=java17'
+      - '--region=us-east1'
+      - '--source=.'
+      - '--entry-point=com.andevs.marketplace.function.HelloWorldFunction'
+      - '--trigger-event-filter=type=google.cloud.firestore.document.v1.created'
+      - '--trigger-event-filter-path-pattern=document=provisioning-requests/{requestId}'
