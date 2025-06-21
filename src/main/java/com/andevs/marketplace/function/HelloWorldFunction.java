@@ -1,20 +1,16 @@
 package com.andevs.marketplace.function;
 
-import com.google.cloud.functions.HttpFunction;
-import com.google.cloud.functions.HttpRequest;
-import com.google.cloud.functions.HttpResponse;
+import com.google.cloud.functions.CloudEventsFunction;
+import com.google.gson.Gson;
+import io.cloudevents.CloudEvent;
 
-import java.io.BufferedWriter;
+public class HelloWorldFunction implements CloudEventsFunction {
 
-public class HelloWorldFunction implements HttpFunction {
     @Override
-    public void service(HttpRequest request, HttpResponse response) throws Exception {
-        // Get the "name" query parameter (default to "World" if not provided)
-        String name = request.getFirstQueryParameter("name").orElse("World");
+    public void accept(CloudEvent event) throws Exception {
 
-        // Write the response
-        BufferedWriter writer = response.getWriter();
-        writer.write("Hello, " + name + "! Welcome to Google Cloud Functions.");
+        System.out.println("New event received: " + event);
+        System.out.println("json: " + new Gson().toJson(event));
     }
 }
 

@@ -76,9 +76,10 @@
             <plugin>
                 <groupId>com.google.cloud.functions</groupId>
                 <artifactId>function-maven-plugin</artifactId>
-                <version>0.9.4</version>
+                <version>0.11.1</version>
                 <configuration>
                     <functionTarget>com.andevs.marketplace.function.HelloWorldFunction</functionTarget> <!-- The fully qualified function class -->
+                    <port>8080</port>
                 </configuration>
             </plugin>
         </plugins>
