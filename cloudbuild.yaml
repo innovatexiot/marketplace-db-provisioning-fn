@@ -9,9 +9,8 @@ steps:
       - --source=.
       - --entry-point=com.andevs.marketplace.function.HelloWorldFunction
       - --runtime=java17
-      - --trigger-event-type=google.cloud.firestore.document.v1.created
+      - --trigger-event-filters=type=google.cloud.firestore.document.v1.created
       - --trigger-event-filters=database=(default)
-      - --trigger-event-filters=namespace=(default)
       - --trigger-location=us-central1
       - --region=us-central1
       - --memory=512MB
