@@ -15,8 +15,12 @@ public class DBProvisioningFunction implements CloudEventsFunction {
         System.out.println("New event received: " + event);
         DocumentEventData firestoreEventData = DocumentEventData.parseFrom(event.getData().toBytes());
         var document = firestoreEventData.getValue();
+        System.out.println("Document: " + document);
         var documentData = document.getFieldsMap();
-        var input = gson.fromJson(gson.toJson(documentData), ProvisioningInput.class);
+        System.out.println("Document Data: " + documentData);
+        var jsonData = gson.toJson(documentData);
+        System.out.println("JSON Data: " + jsonData);
+        var input = gson.fromJson(jsonData, ProvisioningInput.class);
         System.out.println("Input: " + input);
 
     }
