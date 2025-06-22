@@ -27,7 +27,7 @@ steps:
 substitutions:
   _FUNCTION_NAME:   marketplace-db-provisioning-fn
   _REGION:          us-east1
-  _ENTRY_POINT:     com.andevs.marketplace.function.HelloWorldFunction
+  _ENTRY_POINT:     com.andevs.marketplace.function.DBProvisioningFunction
   _DATABASE_NAME:   db-marketplace
   _DOCUMENT_PATH:   db-provisioning-requests/{docId}
 
