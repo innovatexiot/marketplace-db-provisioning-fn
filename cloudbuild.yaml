@@ -1,10 +1,10 @@
 # cloudbuild.yaml
 steps:
-  # 1. Compilar el proyecto y empaquetar el JAR
+  # 1. Compilar y empaquetar el JAR
   - name: 'gcr.io/cloud-builders/mvn'
     args: ['clean', 'package', '-DskipTests']
 
-  # 2. Desplegar la función a Cloud Functions (Gen 2) usando CloudEvents
+  # 2. Desplegar la función (2ª gen) con trigger CloudEvents sobre Firestore
   - name: 'gcr.io/cloud-builders/gcloud'
     entrypoint: 'bash'
     args:
@@ -13,25 +13,27 @@ steps:
         gcloud functions deploy "${_FUNCTION_NAME}" \
           --gen2 \
           --region="${_REGION}" \
+          --trigger-location="${_REGION}" \
           --runtime="java17" \
           --source="." \
           --entry-point="${_ENTRY_POINT}" \
           --trigger-event-filters="type=google.cloud.firestore.document.v1.created" \
-          --trigger-event-filters="resource=projects/${PROJECT_ID}/databases/marketplace/documents/${_DOCUMENT_PATH}" \
+          --trigger-event-filters="database=${_DATABASE_NAME}" \
+          --trigger-event-filters-path-pattern="document=${_DOCUMENT_PATH}" \
           --allow-unauthenticated \
           --quiet
 
-# Sustituciones para parámetros personalizables
+# Parámetros personalizables
 substitutions:
-  _FUNCTION_NAME: marketplace-db-provisioning-fn
-  _REGION:        us-east1
-  _ENTRY_POINT:   com.andevs.marketplace.function.HelloWorldFunction
-  _DOCUMENT_PATH: db-provisioning-requests/{docId}
+  _FUNCTION_NAME:   marketplace-db-provisioning-fn
+  _REGION:          us-east1
+  _ENTRY_POINT:     com.andevs.marketplace.function.HelloWorldFunction
+  _DATABASE_NAME:   marketplace
+  _DOCUMENT_PATH:   db-provisioning-requests/{docId}
 
-# Solución al error de service_account sin bucket de logs:
+# Para evitar el error de tener service_account sin bucket de logs
 options:
-  # Envío de logs únicamente a Cloud Logging
   logging: CLOUD_LOGGING_ONLY
 
-# Tiempo máximo de ejecución de Cloud Build
+# Timeout extendido a 10 minutos
 timeout: '600s'
