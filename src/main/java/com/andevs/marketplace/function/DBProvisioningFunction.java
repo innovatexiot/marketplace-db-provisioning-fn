@@ -1,6 +1,5 @@
 package com.andevs.marketplace.function;
 
-import com.andevs.marketplace.function.model.ProvisioningInput;
 import com.google.cloud.functions.CloudEventsFunction;
 import com.google.events.cloud.firestore.v1.DocumentEventData;
 import com.google.gson.Gson;
@@ -17,11 +16,9 @@ public class DBProvisioningFunction implements CloudEventsFunction {
         var document = firestoreEventData.getValue();
         System.out.println("Document: " + document);
         var documentData = document.getFieldsMap();
-        System.out.println("Document Data: " + documentData);
-        var jsonData = gson.toJson(documentData);
-        System.out.println("JSON Data: " + jsonData);
-        var input = gson.fromJson(jsonData, ProvisioningInput.class);
-        System.out.println("Input: " + input);
+        String clientName = documentData.get("clientName").getStringValue();
+        System.out.println("Client Name: " + clientName);
+
 
     }
 }
