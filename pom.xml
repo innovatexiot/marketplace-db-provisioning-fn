@@ -52,6 +52,27 @@
         </dependency>
 
 
+        <!-- https://mvnrepository.com/artifact/com.google.apis/google-api-services-sqladmin -->
+        <dependency>
+            <groupId>com.google.apis</groupId>
+            <artifactId>google-api-services-sqladmin</artifactId>
+            <version>v1-rev20250613-2.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.auth</groupId>
+            <artifactId>google-auth-library-oauth2-http</artifactId>
+            <version>1.16.0</version>
+        </dependency>
+
+        <!-- https://mvnrepository.com/artifact/com.google.http-client/google-http-client-jackson2 -->
+        <dependency>
+            <groupId>com.google.http-client</groupId>
+            <artifactId>google-http-client-jackson2</artifactId>
+            <version>1.47.0</version>
+        </dependency>
+
+
+
     </dependencies>
 
     <build>
@@ -81,7 +102,8 @@
                         <configuration>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
-                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                                <transformer
+                                        implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
                             </transformers>
                         </configuration>
                     </execution>
@@ -94,7 +116,8 @@
                 <artifactId>function-maven-plugin</artifactId>
                 <version>0.11.1</version>
                 <configuration>
-                    <functionTarget>com.andevs.marketplace.function.DBProvisioningFunction</functionTarget> <!-- The fully qualified function class -->
+                    <functionTarget>com.andevs.marketplace.function.DBProvisioningFunction
+                    </functionTarget> <!-- The fully qualified function class -->
                     <port>8080</port>
                 </configuration>
             </plugin>
