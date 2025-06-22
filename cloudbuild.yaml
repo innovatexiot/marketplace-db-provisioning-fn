@@ -1,14 +1,32 @@
+# cloudbuild.yaml
 steps:
-  - name: 'gcr.io/google.com/cloudsdktool/gcloud'
-    entrypoint: 'gcloud'
+  # 1. Compilar el proyecto y empaquetar el JAR
+  - name: 'gcr.io/cloud-builders/mvn'
+    args: ['clean', 'package', '-DskipTests']
+
+  # 2. Desplegar la función a Cloud Functions (Gen 2) usando CloudEvents
+  - name: 'gcr.io/cloud-builders/gcloud'
+    entrypoint: 'bash'
     args:
-      - 'functions'
-      - 'deploy'
-      - 'marketplace-db-provisioning-fn'
-      - '--gen2'
-      - '--runtime=java17'
-      - '--region=us-east1'
-      - '--source=.'
-      - '--entry-point=com.andevs.marketplace.function.HelloWorldFunction'
-      - '--trigger-event-filter=type=google.cloud.firestore.document.v1.created'
-      - '--trigger-event-filter-path-pattern=document=provisioning-requests/{requestId}'
+      - '-c'
+      - |
+        gcloud functions deploy "${_FUNCTION_NAME}" \
+          --gen2 \
+          --region="${_REGION}" \
+          --runtime="java17" \
+          --source="." \
+          --entry-point="${_ENTRY_POINT}" \
+          --trigger-event-filters="type=google.cloud.firestore.document.v1.created" \
+          --trigger-event-filters="resource=projects/${PROJECT_ID}/databases/marketplace/documents/${_DOCUMENT_PATH}" \
+          --allow-unauthenticated \
+          --quiet
+
+# Sustituciones para parámetros personalizables
+substitutions:
+  _FUNCTION_NAME: marketplace-db-provisioning-fn       # Nombre de la Cloud Function
+  _REGION:        us-east1             # Región donde desplegar
+  _ENTRY_POINT:   com.andevs.marketplace.function.HelloWorldFunction  # Clase que implementa CloudEventsFunction
+  _DOCUMENT_PATH: db-provisioning-requests/{docId}    # Ruta de documentos en Firestore
+
+# Tiempo máximo de ejecución de Cloud Build
+timeout: '600s'
