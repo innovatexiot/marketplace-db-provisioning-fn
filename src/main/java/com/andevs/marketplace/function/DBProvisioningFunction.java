@@ -65,6 +65,10 @@ public class DBProvisioningFunction implements CloudEventsFunction {
         String clientName = documentData.get("clientName").getStringValue();
         System.out.println("Client Name extraído: " + clientName);
 
+        String password = documentData.get("password").getStringValue();
+        System.out.println("password extraído: " + password);
+
+
         // Validaciones antes de proceder
         System.out.println("=== VALIDANDO PARÁMETROS ===");
         System.out.println("PROJECT_ID: " + PROJECT_ID);
@@ -77,7 +81,6 @@ public class DBProvisioningFunction implements CloudEventsFunction {
 
         String dbName = clientName.toLowerCase().replaceAll("\\s+", "_");
         String userName = dbName + "_user";
-        String password = UUID.randomUUID().toString();  // contraseña aleatoria
 
         System.out.println("=== PARÁMETROS GENERADOS ===");
         System.out.println("DB Name: " + dbName);
