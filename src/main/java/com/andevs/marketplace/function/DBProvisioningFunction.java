@@ -15,12 +15,16 @@ import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
 import com.google.cloud.secretmanager.v1.SecretName;
 import com.google.cloud.secretmanager.v1.SecretPayload;
 import com.google.cloud.secretmanager.v1.AddSecretVersionRequest;
+import com.google.cloud.secretmanager.v1.Replication;
 import com.google.events.cloud.firestore.v1.DocumentEventData;
 import com.google.gson.Gson;
 import com.google.protobuf.ByteString;
 import io.cloudevents.CloudEvent;
 
+import java.time.Duration;
+import java.time.OffsetDateTime;
 import java.util.UUID;
+import java.util.logging.Logger;
 
 public class DBProvisioningFunction implements CloudEventsFunction {
 
@@ -57,13 +61,12 @@ public class DBProvisioningFunction implements CloudEventsFunction {
     private final SQLAdmin sqlAdmin;
     private final SecretManagerServiceClient secretClient;
     private final Gson gson = new Gson();
+    private static final Logger logger = Logger.getLogger(DBProvisioningFunction.class.getName());
 
     public DBProvisioningFunction() throws Exception {
         // Log de inicialización
-        System.out.println("=== INICIALIZANDO DBProvisioningFunction ===");
-        System.out.println("PROJECT_ID desde variable de entorno: " + PROJECT_ID);
-        System.out.println("INSTANCE_ID: " + INSTANCE_ID);
-        System.out.println("REGION: " + REGION);
+        logger.info("Inicializando DBProvisioningFunction con PROJECT_ID: " + PROJECT_ID + 
+                   ", INSTANCE_ID: " + INSTANCE_ID + ", REGION: " + REGION);
         
         // Validación temprana de PROJECT_ID
         if (PROJECT_ID == null || PROJECT_ID.trim().isEmpty()) {
@@ -84,93 +87,127 @@ public class DBProvisioningFunction implements CloudEventsFunction {
         // Inicializa el cliente de Secret Manager
         this.secretClient = SecretManagerServiceClient.create();
         
-        System.out.println("SQLAdmin y SecretManager clientes inicializados correctamente");
+        logger.info("✅ SQLAdmin y SecretManager clientes inicializados correctamente");
     }
 
     @Override
     public void accept(CloudEvent event) throws Exception {
-        var gson = new Gson();
+        logger.info("=== PROCESANDO NUEVO EVENTO === Event ID: " + event.getId() + 
+                   ", Type: " + event.getType() + ", Source: " + event.getSource());
 
-        System.out.println("=== PROCESANDO NUEVO EVENTO ===");
-        System.out.println("Event ID: " + event.getId());
-        System.out.println("Event Type: " + event.getType());
-        System.out.println("Event Source: " + event.getSource());
-        
-        DocumentEventData firestoreEventData = DocumentEventData.parseFrom(event.getData().toBytes());
-        var document = firestoreEventData.getValue();
-        System.out.println("Document: " + document);
-        
-        var documentData = document.getFieldsMap();
-        System.out.println("Document fields count: " + documentData.size());
-        
-        String clientName = documentData.get("clientName").getStringValue();
-        System.out.println("Client Name extraído: " + clientName);
+        // Best Practice: Validar edad del evento para evitar reintentos infinitos
+        if (isEventTooOld(event)) {
+            logger.warning("Evento demasiado antiguo, descartando para evitar reintentos infinitos. Event ID: " + event.getId());
+            return;
+        }
 
-        String password = documentData.get("password").getStringValue();
-        System.out.println("password extraído: " + password);
+        try {
+            DocumentEventData firestoreEventData = DocumentEventData.parseFrom(event.getData().toBytes());
+            var document = firestoreEventData.getValue();
+            var documentData = document.getFieldsMap();
+            
+            logger.info("Documento de Firestore recibido con " + documentData.size() + " campos");
+            
+            // Extraer y validar datos del documento
+            String clientName = documentData.get("clientName").getStringValue();
+            String password = documentData.get("password").getStringValue();
+            
+            logger.info("Cliente extraído: " + clientName);
 
-        // Validaciones antes de proceder
-        System.out.println("=== VALIDANDO PARÁMETROS ===");
-        System.out.println("PROJECT_ID: " + PROJECT_ID);
-        System.out.println("INSTANCE_ID: " + INSTANCE_ID);
-        System.out.println("Client Name: " + clientName);
+            // Validaciones
+            validateRequiredParameters(clientName, password);
+
+            // Generar parámetros
+            String dbName = clientName.toLowerCase().replaceAll("\\s+", "_");
+            String userName = dbName + "_user";
+
+            logger.info("Parámetros generados - Database: " + dbName + ", User: " + userName);
+
+            // Ejecutar aprovisionamiento paso a paso
+            executeProvisioningSteps(dbName, userName, password);
+
+            logger.info("=== PROVISIONING COMPLETADO EXITOSAMENTE para cliente: " + clientName + " ===");
+
+        } catch (Exception e) {
+            logger.severe("=== ERROR DURANTE LA CREACIÓN === " + e.getMessage());
+            
+            // Best Practice: No relanzar la excepción si el evento es muy antiguo
+            if (isEventTooOld(event)) {
+                logger.warning("Evento antiguo con error, no reintentando. Event ID: " + event.getId());
+                return;
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * Best Practice: Validar edad del evento para evitar reintentos infinitos
+     * Basado en: https://cloud.google.com/functions/docs/bestpractices/retries
+     */
+    private boolean isEventTooOld(CloudEvent event) {
+        if (event.getTime() == null) {
+            return false;
+        }
         
+        OffsetDateTime eventTime = event.getTime();
+        OffsetDateTime now = OffsetDateTime.now();
+        Duration eventAge = Duration.between(eventTime, now);
+        
+        // Eventos mayores a 10 minutos se consideran muy antiguos
+        boolean isTooOld = eventAge.compareTo(Duration.ofMinutes(10)) > 0;
+        
+        if (isTooOld) {
+            logger.warning("Evento con antigüedad de " + eventAge.getSeconds() + " segundos es demasiado antiguo");
+        }
+        
+        return isTooOld;
+    }
+
+    /**
+     * Validar parámetros requeridos según documentación oficial
+     */
+    private void validateRequiredParameters(String clientName, String password) {
+        if (PROJECT_ID == null || PROJECT_ID.trim().isEmpty()) {
+            throw new IllegalStateException("PROJECT_ID es requerido pero está vacío o null");
+        }
+        if (INSTANCE_ID == null || INSTANCE_ID.trim().isEmpty()) {
+            throw new IllegalStateException("INSTANCE_ID es requerido pero está vacío o null");
+        }
         if (clientName == null || clientName.trim().isEmpty()) {
             throw new IllegalArgumentException("clientName no puede ser null o vacío");
         }
-        
         if (password == null || password.trim().isEmpty()) {
             throw new IllegalArgumentException("password no puede ser null o vacío");
         }
+        
+        logger.info("Parámetros validados - PROJECT_ID: " + PROJECT_ID + ", INSTANCE_ID: " + INSTANCE_ID);
+    }
 
-        String dbName = clientName.toLowerCase().replaceAll("\\s+", "_");
-        String userName = dbName + "_user";
-
-        System.out.println("=== PARÁMETROS GENERADOS ===");
-        System.out.println("DB Name: " + dbName);
-        System.out.println("User Name: " + userName);
-        System.out.println("Password: " + password.substring(0, Math.min(8, password.length())) + "...");
-
+    /**
+     * Ejecutar pasos de aprovisionamiento con manejo individual de errores
+     */
+    private void executeProvisioningSteps(String dbName, String userName, String password) throws Exception {
         try {
-            System.out.println("=== CREANDO BASE DE DATOS ===");
-            // 2) Crea la base de datos
+            // Paso 1: Crear base de datos
+            logger.info("Creando base de datos: " + dbName);
             Database db = new Database().setName(dbName);
-            System.out.println("Database object creado, llamando a insert...");
-            System.out.println("Parámetros para insert: PROJECT_ID=" + PROJECT_ID + ", INSTANCE_ID=" + INSTANCE_ID + ", dbName=" + dbName);
-            
-            sqlAdmin.databases()
-                    .insert(PROJECT_ID, INSTANCE_ID, db)
-                    .execute();
-            
-            System.out.println("Base de datos creada exitosamente: " + dbName);
+            sqlAdmin.databases().insert(PROJECT_ID, INSTANCE_ID, db).execute();
+            logger.info("✅ Base de datos creada exitosamente: " + dbName);
 
-            System.out.println("=== CREANDO USUARIO ===");
-            // 3) Crea el usuario y asigna la contraseña
-            User user = new User()
-                    .setName(userName)
-                    .setPassword(password);
-            System.out.println("User object creado, llamando a insert...");
-            
-            sqlAdmin.users()
-                    .insert(PROJECT_ID, INSTANCE_ID, user)
-                    .execute();
-            
-            System.out.println("Usuario creado exitosamente: " + userName);
+            // Paso 2: Crear usuario  
+            logger.info("Creando usuario: " + userName);
+            User user = new User().setName(userName).setPassword(password);
+            sqlAdmin.users().insert(PROJECT_ID, INSTANCE_ID, user).execute();
+            logger.info("✅ Usuario creado exitosamente: " + userName);
 
-            System.out.println("=== CREANDO SECRETS EN SECRET MANAGER ===");
-            // 4) Crear secrets con credenciales de conexión
+            // Paso 3: Crear secrets
+            logger.info("Creando secrets para base de datos: " + dbName);
             createConnectionSecrets(dbName, userName, password);
+            logger.info("✅ Secrets creados exitosamente para: " + dbName);
 
-            System.out.printf("=== COMPLETADO ===\nCreada BD `%s` y usuario `%s` con secrets de conexión%n",
-                    dbName, userName);
-                    
         } catch (Exception e) {
-            System.err.println("=== ERROR DURANTE LA CREACIÓN ===");
-            System.err.println("Error type: " + e.getClass().getSimpleName());
-            System.err.println("Error message: " + e.getMessage());
-            System.err.println("Stack trace:");
-            e.printStackTrace();
-            throw e; // Re-lanza la excepción
+            logger.severe("Error en paso de aprovisionamiento: " + e.getMessage());
+            throw e;
         }
     }
 
@@ -183,7 +220,7 @@ public class DBProvisioningFunction implements CloudEventsFunction {
             dbName, PROJECT_ID, REGION, INSTANCE_ID
         );
         
-        System.out.println("JDBC URL generada: " + jdbcUrl);
+        logger.info("JDBC URL generada: " + jdbcUrl);
         
         // Crear secret para JDBC URL
         createSecret(secretPrefix + "-jdbc-url", jdbcUrl, "JDBC connection string for " + dbName);
@@ -198,19 +235,22 @@ public class DBProvisioningFunction implements CloudEventsFunction {
         String connectionInfo = gson.toJson(new ConnectionInfo(jdbcUrl, userName, password, dbName));
         createSecret(secretPrefix + "-connection-info", connectionInfo, "Complete connection info for " + dbName);
         
-        System.out.println("Todos los secrets creados exitosamente para: " + dbName);
+        logger.info("✅ Todos los secrets creados exitosamente para: " + dbName);
     }
 
     private void createSecret(String secretId, String secretValue, String description) throws Exception {
         try {
-            System.out.println("Creando secret: " + secretId);
+            logger.info("Creando secret: " + secretId);
             
             ProjectName projectName = ProjectName.of(PROJECT_ID);
             
-            // Crear el secret
+            // Crear el secret con configuración de replicación
             Secret secret = Secret.newBuilder()
                     .putLabels("client-type", "marketplace")
                     .putLabels("managed-by", "db-provisioning-function")
+                    .setReplication(Replication.newBuilder()
+                            .setAutomatic(Replication.Automatic.newBuilder().build())
+                            .build())
                     .build();
             
             CreateSecretRequest createSecretRequest = CreateSecretRequest.newBuilder()
@@ -220,7 +260,7 @@ public class DBProvisioningFunction implements CloudEventsFunction {
                     .build();
             
             Secret createdSecret = secretClient.createSecret(createSecretRequest);
-            System.out.println("Secret creado: " + createdSecret.getName());
+            logger.info("✅ Secret creado: " + createdSecret.getName());
             
             // Agregar la primera versión del secret con el valor
             SecretPayload payload = SecretPayload.newBuilder()
@@ -233,10 +273,10 @@ public class DBProvisioningFunction implements CloudEventsFunction {
                     .build();
             
             var version = secretClient.addSecretVersion(addVersionRequest);
-            System.out.println("Version del secret creada: " + version.getName());
+            logger.info("✅ Version del secret creada: " + version.getName());
             
         } catch (Exception e) {
-            System.err.println("Error creando secret " + secretId + ": " + e.getMessage());
+            logger.severe("❌ Error creando secret " + secretId + ": " + e.getMessage());
             throw e;
         }
     }
