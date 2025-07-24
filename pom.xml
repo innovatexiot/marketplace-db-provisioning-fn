@@ -19,8 +19,22 @@
         <maven.compiler.target>17</maven.compiler.target>
         <java.version>17</java.version>  <!-- Using Java 17 as the runtime -->
         <functions-framework.version>1.0.4</functions-framework.version> <!-- Version of Functions Framework -->
+        <google-cloud-libraries.version>26.29.0</google-cloud-libraries.version> <!-- Google Cloud Libraries BOM -->
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
+
+    <!-- Dependency Management usando BOM de Google Cloud -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>com.google.cloud</groupId>
+                <artifactId>libraries-bom</artifactId>
+                <version>${google-cloud-libraries.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- Google Cloud Functions Framework (Required for running functions locally
@@ -38,44 +52,43 @@
             <version>2.8.6</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/com.google.cloud/google-cloudevent-types -->
+        <!-- Google Cloud Event Types (versión específica, no en BOM) -->
         <dependency>
             <groupId>com.google.cloud</groupId>
             <artifactId>google-cloudevent-types</artifactId>
             <version>0.16.0</version>
         </dependency>
 
+        <!-- Jackson Annotations (versión específica) -->
         <dependency>
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-annotations</artifactId>
             <version>2.15.2</version>
         </dependency>
 
-
-        <!-- https://mvnrepository.com/artifact/com.google.apis/google-api-services-sqladmin -->
+        <!-- Google Cloud SQL Admin API (versión específica) -->
         <dependency>
             <groupId>com.google.apis</groupId>
             <artifactId>google-api-services-sqladmin</artifactId>
             <version>v1-rev20250613-2.0.0</version>
         </dependency>
+        
+        <!-- Google Auth Libraries (gestionado por BOM) -->
         <dependency>
             <groupId>com.google.auth</groupId>
             <artifactId>google-auth-library-oauth2-http</artifactId>
-            <version>1.16.0</version>
         </dependency>
 
-        <!-- https://mvnrepository.com/artifact/com.google.http-client/google-http-client-jackson2 -->
+        <!-- Google HTTP Client (gestionado por BOM) -->
         <dependency>
             <groupId>com.google.http-client</groupId>
             <artifactId>google-http-client-jackson2</artifactId>
-            <version>1.47.0</version>
         </dependency>
 
-        <!-- Google Cloud Secret Manager -->
+        <!-- Google Cloud Secret Manager (gestionado por BOM) -->
         <dependency>
             <groupId>com.google.cloud</groupId>
             <artifactId>google-cloud-secretmanager</artifactId>
-            <version>2.30.0</version>
         </dependency>
 
         <!-- MySQL JDBC Driver (para testing local de conexiones) -->
