@@ -214,26 +214,8 @@ public class DBProvisioningFunction implements CloudEventsFunction {
     private void createConnectionSecrets(String dbName, String userName, String password) throws Exception {
         String secretPrefix = "marketplace-db-" + dbName;
         
-        // Construir la cadena de conexión JDBC para MySQL en Cloud SQL
-        String jdbcUrl = String.format(
-            "jdbc:mysql://google/%s?cloudSqlInstance=%s:%s:%s&socketFactory=com.google.cloud.sql.mysql.SocketFactory&useSSL=false&allowPublicKeyRetrieval=true",
-            dbName, PROJECT_ID, REGION, INSTANCE_ID
-        );
-        
-        logger.info("JDBC URL generada: " + jdbcUrl);
-        
-        // Crear secret para JDBC URL
-        createSecret(secretPrefix + "-jdbc-url", jdbcUrl, "JDBC connection string for " + dbName);
-        
-        // Crear secret para username
-        createSecret(secretPrefix + "-username", userName, "Database username for " + dbName);
-        
         // Crear secret para password
         createSecret(secretPrefix + "-password", password, "Database password for " + dbName);
-        
-        // Crear secret combinado con toda la información en JSON
-        String connectionInfo = gson.toJson(new ConnectionInfo(jdbcUrl, userName, password, dbName));
-        createSecret(secretPrefix + "-connection-info", connectionInfo, "Complete connection info for " + dbName);
         
         logger.info("✅ Todos los secrets creados exitosamente para: " + dbName);
     }
