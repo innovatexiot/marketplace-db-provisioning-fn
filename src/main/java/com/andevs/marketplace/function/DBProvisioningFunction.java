@@ -24,7 +24,6 @@ import io.cloudevents.CloudEvent;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
-import java.sql.ResultSet;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -207,20 +206,6 @@ public class DBProvisioningFunction implements CloudEventsFunction {
             createSchemaWithPermissions(schemaName, userName);
             logger.info("✅ Esquema creado exitosamente: " + schemaName);
 
-            // Paso 3.5: Otorgar permisos al usuario creado
-            logger.info("Otorgando permisos específicos al usuario: " + userName);
-            try {
-                grantSchemaPermissionsToUser(schemaName, userName);
-                logger.info("✅ Permisos otorgados exitosamente: " + userName);
-            } catch (Exception e) {
-                logger.warning("⚠️ No se pudieron otorgar permisos automáticamente: " + e.getMessage());
-                logger.info("💡 Los permisos se pueden otorgar manualmente con estos comandos:");
-                logger.info("   GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON `" + 
-                           schemaName + "`.* TO '" + userName + "'@'%';");
-                logger.info("   FLUSH PRIVILEGES;");
-                // No lanzar excepción, continuar con el flujo
-            }
-
             // Paso 4: Crear secrets para el esquema
             logger.info("Creando secrets para esquema: " + schemaName);
             createSchemaConnectionSecrets(schemaName, userName, password);
@@ -285,10 +270,10 @@ public class DBProvisioningFunction implements CloudEventsFunction {
     }
 
     /**
-     * Crear esquema usando conexión JDBC directa
+     * Crear esquema y otorgar permisos específicos al usuario usando conexión JDBC directa
      */
     private void createSchemaWithPermissions(String schemaName, String userName) throws Exception {
-        logger.info("Creando esquema " + schemaName);
+        logger.info("Creando esquema " + schemaName + " y otorgando permisos a " + userName);
         
         // Construir JDBC URL para conexión como root
         String jdbcUrl = String.format(
@@ -300,82 +285,35 @@ public class DBProvisioningFunction implements CloudEventsFunction {
             logger.info("✅ Conexión JDBC establecida como usuario root");
             
             try (Statement statement = connection.createStatement()) {
-                // Crear esquema
+                // 1. Crear esquema
                 String createSchemaSQL = String.format("CREATE SCHEMA IF NOT EXISTS `%s`", schemaName);
                 statement.executeUpdate(createSchemaSQL);
                 logger.info("✅ Esquema creado: " + schemaName);
                 
-            }
-        } catch (Exception e) {
-            logger.severe("❌ Error creando esquema: " + e.getMessage());
-            throw e;
-        }
-        
-        logger.info("✅ Esquema " + schemaName + " creado exitosamente");
-    }
-
-    /**
-     * Otorgar permisos específicos al usuario sobre su esquema
-     */
-    private void grantSchemaPermissionsToUser(String schemaName, String userName) throws Exception {
-        logger.info("Otorgando permisos sobre esquema " + schemaName + " a usuario " + userName);
-        
-        // Construir JDBC URL para conexión como root
-        String jdbcUrl = String.format(
-            "jdbc:mysql://google/%s?cloudSqlInstance=%s:%s:%s&socketFactory=com.google.cloud.sql.mysql.SocketFactory&useSSL=false&allowPublicKeyRetrieval=true",
-            SCHEMAS_DATABASE, PROJECT_ID, REGION, INSTANCE_ID
-        );
-        
-        try (Connection connection = DriverManager.getConnection(jdbcUrl, "root", getRootPassword())) {
-            logger.info("✅ Conexión JDBC establecida para otorgar permisos");
-            
-            try (Statement statement = connection.createStatement()) {
-                // Verificar si el usuario existe
-                boolean userExists = checkIfUserExists(statement, userName);
+                // 2. Otorgar permisos específicos al usuario cliente
+                String grantClientSQL = String.format(
+                    "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON `%s`.* TO '%s'@'%%'",
+                    schemaName, userName
+                );
+                statement.executeUpdate(grantClientSQL);
+                logger.info("✅ Permisos otorgados a usuario cliente: " + userName);
                 
-                if (userExists) {
-                    // Otorgar permisos específicos al usuario cliente
-                    String grantClientSQL = String.format(
-                        "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON `%s`.* TO '%s'@'%%'",
-                        schemaName, userName
-                    );
-                    statement.executeUpdate(grantClientSQL);
-                    logger.info("✅ Permisos otorgados a usuario cliente: " + userName);
-                    
-                    // Aplicar cambios
-                    statement.executeUpdate("FLUSH PRIVILEGES");
-                    logger.info("✅ Privilegios aplicados exitosamente");
-                } else {
-                    logger.warning("⚠️ Usuario " + userName + " no existe aún en mysql.user");
-                    logger.info("💡 Esto puede ser normal si el usuario fue creado recientemente");
-                    logger.info("💡 Los permisos se otorgarán cuando el usuario esté disponible");
-                    throw new Exception("Usuario " + userName + " no visible aún en mysql.user");
-                }
+                // 3. Asegurar que root tenga todos los permisos
+                String grantRootSQL = String.format("GRANT ALL PRIVILEGES ON `%s`.* TO 'root'@'%%'", schemaName);
+                statement.executeUpdate(grantRootSQL);
+                logger.info("✅ Permisos completos otorgados a usuario root");
+                
+                // 4. Aplicar cambios
+                statement.executeUpdate("FLUSH PRIVILEGES");
+                logger.info("✅ Privilegios aplicados exitosamente");
                 
             }
         } catch (Exception e) {
-            logger.severe("❌ Error otorgando permisos: " + e.getMessage());
+            logger.severe("❌ Error ejecutando comandos SQL: " + e.getMessage());
             throw e;
         }
         
-        logger.info("✅ Permisos otorgados exitosamente a " + userName);
-    }
-
-    /**
-     * Verifica si un usuario existe en MySQL
-     */
-    private boolean checkIfUserExists(Statement statement, String userName) throws Exception {
-        try {
-            String query = String.format("SELECT User FROM mysql.user WHERE User = '%s'", userName);
-            ResultSet rs = statement.executeQuery(query);
-            boolean exists = rs.next();
-            rs.close();
-            logger.info("Usuario " + userName + " existe: " + exists);
-            return exists;
-        } catch (Exception e) {
-            logger.warning("No se pudo verificar la existencia del usuario " + userName + ": " + e.getMessage());
-            return false;
-        }
+        logger.info("✅ Esquema " + schemaName + " creado y configurado automáticamente");
     }
 
     /**
