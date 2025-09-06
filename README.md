@@ -276,9 +276,31 @@ gcloud secrets add-iam-policy-binding mysql-root-password \
 ```sql
 -- Se ejecutan automáticamente por la Cloud Function
 CREATE SCHEMA IF NOT EXISTS `mi_empresa_abc`;
+
+-- Permisos (se intenta automáticamente, puede requerir ejecución manual)
 GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER 
 ON `mi_empresa_abc`.* TO 'mi_empresa_abc_user'@'%';
-GRANT ALL PRIVILEGES ON `mi_empresa_abc`.* TO 'root'@'%';
+FLUSH PRIVILEGES;
+```
+
+### ⚠️ Limitación de Permisos en Cloud SQL
+
+Debido a las restricciones de seguridad de Cloud SQL, el usuario `root` puede no tener permisos para otorgar privilegios a otros usuarios. Si esto ocurre:
+
+**Opción 1: Script Automático**
+```bash
+# Generar comandos SQL para ejecución manual
+./grant-permissions.sh mi_empresa_abc mi_empresa_abc_user
+```
+
+**Opción 2: Ejecución Manual**
+```bash
+# Conectarse a Cloud SQL y ejecutar manualmente
+gcloud sql connect innovatex-marketplace-master --user=root --database=andevs_schemes
+
+# Ejecutar en MySQL:
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER 
+ON `mi_empresa_abc`.* TO 'mi_empresa_abc_user'@'%';
 FLUSH PRIVILEGES;
 ```
 
@@ -298,6 +320,11 @@ gcloud projects add-iam-policy-binding PROJECT_ID \
 ### Error de conexión a Cloud SQL
 - Verificar que la instancia `innovatex-marketplace-master` existe
 - Confirmar que la región coincide con la configuración
+
+### Error: "You are not allowed to create a user with GRANT"
+- Este error ocurre cuando el usuario `root` de Cloud SQL no tiene permisos completos
+- **Solución**: Usar el script `./grant-permissions.sh` para generar comandos SQL
+- **Alternativa**: Ejecutar manualmente los comandos GRANT desde la consola de Cloud SQL
 
 ## 📚 Dependencias Principales
 
