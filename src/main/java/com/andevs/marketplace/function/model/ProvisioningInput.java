@@ -18,17 +18,25 @@ public record ProvisioningInput(
     }
     
     /**
-     * Genera el nombre de la base de datos basado en el nombre del cliente
+     * Genera el nombre del esquema basado en el nombre del cliente
      * Convierte a minúsculas y reemplaza espacios con guiones bajos
      */
-    public String getDatabaseName() {
+    public String getSchemaName() {
         return clientName.toLowerCase().replaceAll("\\s+", "_");
     }
     
     /**
-     * Genera el nombre de usuario basado en el nombre de la base de datos
+     * Genera el nombre de usuario basado en el nombre del esquema
      */
     public String getUserName() {
-        return getDatabaseName() + "_user";
+        return getSchemaName() + "_user";
+    }
+    
+    /**
+     * @deprecated Usar getSchemaName() en su lugar
+     */
+    @Deprecated
+    public String getDatabaseName() {
+        return getSchemaName();
     }
 }

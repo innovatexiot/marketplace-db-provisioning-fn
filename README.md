@@ -1,10 +1,11 @@
-# 🏢 InnovateX Marketplace - DB Provisioning Function
+# 🏢 InnovateX Marketplace - Schema Provisioning Function
 
 ## 📌 Descripción General
-Esta es una **Google Cloud Function** en Java que automatiza el **aprovisionamiento de bases de datos** para clientes del marketplace InnovateX. La función:
+Esta es una **Google Cloud Function** en Java que automatiza el **aprovisionamiento de esquemas de base de datos** para clientes del marketplace InnovateX. La función:
 
-- ✅ **Crea automáticamente** bases de datos individuales para cada cliente
-- ✅ **Genera usuarios** con acceso exclusivo a su base de datos
+- ✅ **Crea automáticamente** esquemas individuales para cada cliente en la BD `andevs_schemes`
+- ✅ **Genera usuarios cliente** con acceso exclusivo a su esquema específico
+- ✅ **Mantiene usuario root** con acceso completo a todos los esquemas
 - ✅ **Almacena credenciales** de forma segura en Google Secret Manager
 - ✅ **Se activa automáticamente** cuando se crea un documento en Firestore
 - ✅ **Proporciona logs detallados** para depuración y auditoría
@@ -14,9 +15,11 @@ Esta es una **Google Cloud Function** en Java que automatiza el **aprovisionamie
 ```
 📄 Documento Firestore Creado
     ↓ (Trigger automático)
-⚡ Cloud Function (DBProvisioningFunction)
-    ↓ (Ejecuta 3 operaciones)
-🗄️ Cloud SQL: Crear BD + Usuario
+⚡ Cloud Function (SchemaProvisioningFunction)
+    ↓ (Ejecuta 4 operaciones)
+🗄️ Cloud SQL: Verificar BD andevs_schemes
+👤 Cloud SQL: Crear Usuario Cliente
+🏗️ Cloud SQL: Crear Esquema + Permisos
 🔐 Secret Manager: Almacenar credenciales
 📝 Logs: Registro detallado
 ```
@@ -37,27 +40,35 @@ Esta es una **Google Cloud Function** en Java que automatiza el **aprovisionamie
 }
 ```
 
-## 🚀 Proceso de Aprovisionamiento
+## 🚀 Proceso de Aprovisionamiento de Esquemas
 
-### 1. **Creación de Base de Datos**
-- **Nombre**: `mi_empresa_abc` (convierte espacios a guiones bajos)
+### 1. **Verificación/Creación de Base de Datos Principal**
+- **Nombre**: `andevs_schemes` (base de datos que contiene todos los esquemas)
 - **Instancia**: `innovatex-marketplace-master`
 - **Tipo**: MySQL en Cloud SQL
+- **Comportamiento**: Se verifica existencia, se crea solo si no existe
 
-### 2. **Creación de Usuario**
+### 2. **Creación de Usuario Cliente**
 - **Nombre**: `mi_empresa_abc_user`
 - **Contraseña**: La proporcionada en el documento
-- **Permisos**: Acceso completo a su base de datos
+- **Permisos**: Acceso limitado solo a su esquema específico
+- **Comportamiento**: Se actualiza si ya existe
 
-### 3. **Almacenamiento de Secrets**
+### 3. **Creación Automática de Esquema y Permisos**
+- **Esquema**: `mi_empresa_abc` (dentro de `andevs_schemes`)
+- **Permisos Cliente**: SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER sobre su esquema
+- **Permisos Root**: ALL PRIVILEGES sobre todos los esquemas
+- **Ejecución**: ✅ **AUTOMÁTICA** usando conexión JDBC directa
+
+### 4. **Almacenamiento de Secrets**
 Para cada cliente se crean **4 secrets** en Secret Manager:
 
 | Secret ID | Contenido | Ejemplo |
 |-----------|-----------|---------|
-| `marketplace-db-{cliente}-jdbc-url` | Cadena de conexión JDBC | `jdbc:mysql://google/mi_empresa_abc?cloudSqlInstance=...` |
-| `marketplace-db-{cliente}-username` | Nombre de usuario | `mi_empresa_abc_user` |
-| `marketplace-db-{cliente}-password` | Contraseña | `mi-password-seguro-123` |
-| `marketplace-db-{cliente}-connection-info` | JSON completo | `{"jdbcUrl":"...", "username":"...", "password":"..."}` |
+| `marketplace-schema-{cliente}-jdbc-url` | Cadena de conexión JDBC | `jdbc:mysql://google/andevs_schemes?cloudSqlInstance=...` |
+| `marketplace-schema-{cliente}-username` | Nombre de usuario | `mi_empresa_abc_user` |
+| `marketplace-schema-{cliente}-password` | Contraseña | `mi-password-seguro-123` |
+| `marketplace-schema-{cliente}-connection-info` | JSON completo | `{"jdbcUrl":"...", "username":"...", "schemaName":"mi_empresa_abc", ...}` |
 
 ## 📋 Prerequisitos
 
@@ -68,6 +79,8 @@ Para cada cliente se crean **4 secrets** en Secret Manager:
 
 ### Infraestructura Requerida
 - **Cloud SQL MySQL Instance**: `innovatex-marketplace-master`
+- **Base de Datos Principal**: `andevs_schemes` (se crea automáticamente si no existe)
+- **Secret Manager**: `mysql-root-password` (contraseña del usuario root de MySQL)
 - **Firestore Database**: `db-marketplace`
 - **Secret Manager**: Habilitado en el proyecto
 
@@ -86,23 +99,27 @@ La función necesita los siguientes permisos en GCP:
 jdbc:mysql://google/{database_name}?cloudSqlInstance={project}:{region}:{instance}&socketFactory=com.google.cloud.sql.mysql.SocketFactory&useSSL=false&allowPublicKeyRetrieval=true
 ```
 
-### Ejemplo Completo para MySQL
+### Ejemplo Completo para Esquemas MySQL
 ```java
 // Ejemplo de uso del secret generado
 String connectionInfo = secretClient.accessSecretVersion(
-    "projects/PROJECT_ID/secrets/marketplace-db-mi_empresa-connection-info/versions/latest"
+    "projects/PROJECT_ID/secrets/marketplace-schema-mi_empresa-connection-info/versions/latest"
 ).getPayload().getData().toStringUtf8();
 
 // JSON resultante:
 {
-  "jdbcUrl": "jdbc:mysql://google/mi_empresa?cloudSqlInstance=PROJECT:us-east1:innovatex-marketplace-master&socketFactory=com.google.cloud.sql.mysql.SocketFactory&useSSL=false&allowPublicKeyRetrieval=true",
+  "jdbcUrl": "jdbc:mysql://google/andevs_schemes?cloudSqlInstance=PROJECT:us-east1:innovatex-marketplace-master&socketFactory=com.google.cloud.sql.mysql.SocketFactory&useSSL=false&allowPublicKeyRetrieval=true",
   "username": "mi_empresa_user", 
   "password": "password-seguro-123",
-  "databaseName": "mi_empresa",
+  "schemaName": "mi_empresa",
+  "databaseName": "andevs_schemes",
   "instanceId": "innovatex-marketplace-master",
   "projectId": "PROJECT_ID",
   "region": "us-east1"
 }
+
+// Para usar el esquema específico en consultas:
+// USE mi_empresa; o prefijar tablas: SELECT * FROM mi_empresa.mi_tabla;
 ```
 
 ## 🏃 Ejecución Local
@@ -156,9 +173,10 @@ db.collection('db-provisioning-requests').add({
 ```
 
 ### Verificar resultados
-1. **Cloud SQL**: Verificar que se creó la BD `empresa_de_prueba`
-2. **Secret Manager**: Verificar que se crearon los 4 secrets
-3. **Logs**: Revisar los logs en Cloud Functions
+1. **Cloud SQL**: Verificar que existe la BD `andevs_schemes` y el esquema `empresa_de_prueba`
+2. **Usuarios**: Verificar que se creó el usuario `empresa_de_prueba_user`
+3. **Secret Manager**: Verificar que se crearon los 4 secrets con prefijo `marketplace-schema-`
+4. **Logs**: Revisar los logs en Cloud Functions para comandos SQL generados
 
 ## 📊 Monitoring y Logs
 
@@ -173,8 +191,9 @@ gcloud functions logs read marketplace-db-provisioning-fn --region=us-east1
 === PROCESANDO NUEVO EVENTO ===
 === VALIDANDO PARÁMETROS ===
 === PARÁMETROS GENERADOS ===
-=== CREANDO BASE DE DATOS ===
-=== CREANDO USUARIO ===
+=== VERIFICANDO BD ANDEVS_SCHEMES ===
+=== CREANDO USUARIO CLIENTE ===
+=== GENERANDO COMANDOS SQL PARA ESQUEMA ===
 === CREANDO SECRETS EN SECRET MANAGER ===
 === COMPLETADO ===
 ```
@@ -184,22 +203,22 @@ gcloud functions logs read marketplace-db-provisioning-fn --region=us-east1
 ### Usando gcloud CLI
 ```bash
 # Obtener JDBC URL
-gcloud secrets versions access latest --secret="marketplace-db-empresa_prueba-jdbc-url"
+gcloud secrets versions access latest --secret="marketplace-schema-empresa_prueba-jdbc-url"
 
 # Obtener username
-gcloud secrets versions access latest --secret="marketplace-db-empresa_prueba-username"
+gcloud secrets versions access latest --secret="marketplace-schema-empresa_prueba-username"
 
 # Obtener password
-gcloud secrets versions access latest --secret="marketplace-db-empresa_prueba-password"
+gcloud secrets versions access latest --secret="marketplace-schema-empresa_prueba-password"
 
 # Obtener JSON completo
-gcloud secrets versions access latest --secret="marketplace-db-empresa_prueba-connection-info"
+gcloud secrets versions access latest --secret="marketplace-schema-empresa_prueba-connection-info"
 ```
 
 ### Usando SDK (ejemplo en Java)
 ```java
 SecretManagerServiceClient client = SecretManagerServiceClient.create();
-String secretName = "projects/PROJECT_ID/secrets/marketplace-db-cliente-jdbc-url/versions/latest";
+String secretName = "projects/PROJECT_ID/secrets/marketplace-schema-cliente-jdbc-url/versions/latest";
 String jdbcUrl = client.accessSecretVersion(secretName).getPayload().getData().toStringUtf8();
 ```
 
@@ -213,6 +232,54 @@ String jdbcUrl = client.accessSecretVersion(secretName).getPayload().getData().t
 ```java
 private static final String INSTANCE_ID = "innovatex-marketplace-master";
 private static final String REGION = "us-east1";
+```
+
+## ✅ Aprovisionamiento Completamente Automatizado
+
+**¡NUEVO!** La función ahora ejecuta automáticamente todos los comandos SQL necesarios usando una **conexión JDBC directa**.
+
+### Configuración Inicial Requerida:
+
+**Opción 1: Script Automático (Recomendado)**
+```bash
+# Ejecutar script de configuración automática
+./setup-automation.sh
+```
+
+**Opción 2: Configuración Manual**
+
+1. **Crear secret para contraseña de root**:
+```bash
+# Crear el secret con la contraseña del usuario root de MySQL
+gcloud secrets create mysql-root-password --data-file=- <<< "tu-password-root-mysql"
+```
+
+2. **Otorgar permisos** a la service account de la Cloud Function:
+```bash
+# Permiso para leer el secret de root
+gcloud secrets add-iam-policy-binding mysql-root-password \
+  --member="serviceAccount:PROJECT_ID@appspot.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+```
+
+### Proceso Automatizado:
+1. ✅ **Verificar/Crear BD** `andevs_schemes`
+2. ✅ **Crear/Actualizar usuario** cliente
+3. ✅ **Ejecutar SQL automáticamente**:
+   - `CREATE SCHEMA IF NOT EXISTS cliente_schema`
+   - `GRANT permisos específicos TO usuario_cliente`
+   - `GRANT ALL PRIVILEGES TO root`
+   - `FLUSH PRIVILEGES`
+4. ✅ **Crear secrets** en Secret Manager
+
+### Comandos SQL Ejecutados Automáticamente:
+```sql
+-- Se ejecutan automáticamente por la Cloud Function
+CREATE SCHEMA IF NOT EXISTS `mi_empresa_abc`;
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER 
+ON `mi_empresa_abc`.* TO 'mi_empresa_abc_user'@'%';
+GRANT ALL PRIVILEGES ON `mi_empresa_abc`.* TO 'root'@'%';
+FLUSH PRIVILEGES;
 ```
 
 ## 🔧 Troubleshooting
@@ -236,6 +303,8 @@ gcloud projects add-iam-policy-binding PROJECT_ID \
 
 - **Google Cloud Functions Framework**: Ejecución de funciones
 - **Google Cloud SQL Admin API**: Gestión de bases de datos
+- **MySQL Connector/J**: Conexión JDBC directa a Cloud SQL
+- **Cloud SQL MySQL Socket Factory**: Conexiones seguras a Cloud SQL
 - **Google Cloud Secret Manager**: Almacenamiento seguro de credenciales
 - **Google Cloud Firestore Events**: Triggers de eventos
 - **Gson**: Procesamiento JSON

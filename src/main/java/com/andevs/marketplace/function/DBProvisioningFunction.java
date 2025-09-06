@@ -21,6 +21,9 @@ import com.google.gson.Gson;
 import com.google.protobuf.ByteString;
 import io.cloudevents.CloudEvent;
 
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -57,6 +60,7 @@ public class DBProvisioningFunction implements CloudEventsFunction {
     private static final String PROJECT_ID = getProjectId();
     private static final String INSTANCE_ID = "innovatex-marketplace-master";
     private static final String REGION = "us-east1"; // Región de la instancia SQL
+    private static final String SCHEMAS_DATABASE = "andevs_schemes"; // Base de datos que contendrá todos los esquemas
 
     private final SQLAdmin sqlAdmin;
     private final SecretManagerServiceClient secretClient;
@@ -117,14 +121,14 @@ public class DBProvisioningFunction implements CloudEventsFunction {
             // Validaciones
             validateRequiredParameters(clientName, password);
 
-            // Generar parámetros
-            String dbName = clientName.toLowerCase().replaceAll("\\s+", "_");
-            String userName = dbName + "_user";
+            // Generar parámetros para esquema
+            String schemaName = clientName.toLowerCase().replaceAll("\\s+", "_");
+            String userName = schemaName + "_user";
 
-            logger.info("Parámetros generados - Database: " + dbName + ", User: " + userName);
+            logger.info("Parámetros generados - Schema: " + schemaName + ", User: " + userName);
 
-            // Ejecutar aprovisionamiento paso a paso
-            executeProvisioningSteps(dbName, userName, password);
+            // Ejecutar aprovisionamiento de esquema paso a paso
+            executeSchemaProvisioningSteps(schemaName, userName, password);
 
             logger.info("=== PROVISIONING COMPLETADO EXITOSAMENTE para cliente: " + clientName + " ===");
 
@@ -184,40 +188,174 @@ public class DBProvisioningFunction implements CloudEventsFunction {
     }
 
     /**
-     * Ejecutar pasos de aprovisionamiento con manejo individual de errores
+     * Ejecutar pasos de aprovisionamiento de esquema con manejo individual de errores
      */
-    private void executeProvisioningSteps(String dbName, String userName, String password) throws Exception {
+    private void executeSchemaProvisioningSteps(String schemaName, String userName, String password) throws Exception {
         try {
-            // Paso 1: Crear base de datos
-            logger.info("Creando base de datos: " + dbName);
-            Database db = new Database().setName(dbName);
-            sqlAdmin.databases().insert(PROJECT_ID, INSTANCE_ID, db).execute();
-            logger.info("✅ Base de datos creada exitosamente: " + dbName);
+            // Paso 1: Verificar que la base de datos andevs_schemes existe
+            logger.info("Verificando existencia de base de datos: " + SCHEMAS_DATABASE);
+            ensureSchemasDatabaseExists();
+            
+            // Paso 2: Crear usuario cliente
+            logger.info("Creando usuario cliente: " + userName);
+            createClientUser(userName, password);
+            logger.info("✅ Usuario cliente creado exitosamente: " + userName);
 
-            // Paso 2: Crear usuario  
-            logger.info("Creando usuario: " + userName);
-            User user = new User().setName(userName).setPassword(password);
-            sqlAdmin.users().insert(PROJECT_ID, INSTANCE_ID, user).execute();
-            logger.info("✅ Usuario creado exitosamente: " + userName);
+            // Paso 3: Crear esquema y otorgar permisos específicos
+            logger.info("Creando esquema: " + schemaName);
+            createSchemaWithPermissions(schemaName, userName);
+            logger.info("✅ Esquema creado exitosamente: " + schemaName);
 
-            // Paso 3: Crear secrets
-            logger.info("Creando secrets para base de datos: " + dbName);
-            createConnectionSecrets(dbName, userName, password);
-            logger.info("✅ Secrets creados exitosamente para: " + dbName);
+            // Paso 4: Crear secrets para el esquema
+            logger.info("Creando secrets para esquema: " + schemaName);
+            createSchemaConnectionSecrets(schemaName, userName, password);
+            logger.info("✅ Secrets creados exitosamente para: " + schemaName);
 
         } catch (Exception e) {
-            logger.severe("Error en paso de aprovisionamiento: " + e.getMessage());
+            logger.severe("Error en paso de aprovisionamiento de esquema: " + e.getMessage());
             throw e;
         }
     }
 
-    private void createConnectionSecrets(String dbName, String userName, String password) throws Exception {
-        String secretPrefix = "marketplace-db-" + dbName;
+    /**
+     * Verifica que la base de datos andevs_schemes existe, si no, la crea
+     */
+    private void ensureSchemasDatabaseExists() throws Exception {
+        try {
+            // Intentar obtener la base de datos
+            sqlAdmin.databases().get(PROJECT_ID, INSTANCE_ID, SCHEMAS_DATABASE).execute();
+            logger.info("✅ Base de datos " + SCHEMAS_DATABASE + " ya existe");
+        } catch (Exception e) {
+            if (e.getMessage().contains("404") || e.getMessage().contains("not found")) {
+                logger.info("Base de datos " + SCHEMAS_DATABASE + " no existe, creándola...");
+                Database db = new Database().setName(SCHEMAS_DATABASE);
+                sqlAdmin.databases().insert(PROJECT_ID, INSTANCE_ID, db).execute();
+                logger.info("✅ Base de datos " + SCHEMAS_DATABASE + " creada exitosamente");
+            } else {
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * Crear usuario cliente con permisos limitados
+     */
+    private void createClientUser(String userName, String password) throws Exception {
+        try {
+            // Verificar si el usuario ya existe
+            try {
+                sqlAdmin.users().get(PROJECT_ID, INSTANCE_ID, userName).execute();
+                logger.info("Usuario " + userName + " ya existe, actualizando contraseña...");
+                
+                // Si existe, actualizar la contraseña
+                User existingUser = new User().setName(userName).setPassword(password);
+                sqlAdmin.users().update(PROJECT_ID, INSTANCE_ID, existingUser).execute();
+                logger.info("✅ Contraseña del usuario " + userName + " actualizada");
+                
+            } catch (Exception e) {
+                if (e.getMessage().contains("404") || e.getMessage().contains("not found")) {
+                    // Usuario no existe, crearlo
+                    logger.info("Creando nuevo usuario: " + userName);
+                    User user = new User().setName(userName).setPassword(password);
+                    sqlAdmin.users().insert(PROJECT_ID, INSTANCE_ID, user).execute();
+                    logger.info("✅ Usuario " + userName + " creado exitosamente");
+                } else {
+                    throw e;
+                }
+            }
+        } catch (Exception e) {
+            logger.severe("Error creando/actualizando usuario " + userName + ": " + e.getMessage());
+            throw e;
+        }
+    }
+
+    /**
+     * Crear esquema y otorgar permisos específicos al usuario usando conexión JDBC directa
+     */
+    private void createSchemaWithPermissions(String schemaName, String userName) throws Exception {
+        logger.info("Creando esquema " + schemaName + " y otorgando permisos a " + userName);
         
-        // Crear secret para password
-        createSecret(secretPrefix + "-password", password, "Database password for " + dbName);
+        // Construir JDBC URL para conexión como root
+        String jdbcUrl = String.format(
+            "jdbc:mysql://google/%s?cloudSqlInstance=%s:%s:%s&socketFactory=com.google.cloud.sql.mysql.SocketFactory&useSSL=false&allowPublicKeyRetrieval=true",
+            SCHEMAS_DATABASE, PROJECT_ID, REGION, INSTANCE_ID
+        );
         
-        logger.info("✅ Todos los secrets creados exitosamente para: " + dbName);
+        try (Connection connection = DriverManager.getConnection(jdbcUrl, "root", getRootPassword())) {
+            logger.info("✅ Conexión JDBC establecida como usuario root");
+            
+            try (Statement statement = connection.createStatement()) {
+                // 1. Crear esquema
+                String createSchemaSQL = String.format("CREATE SCHEMA IF NOT EXISTS `%s`", schemaName);
+                statement.executeUpdate(createSchemaSQL);
+                logger.info("✅ Esquema creado: " + schemaName);
+                
+                // 2. Otorgar permisos específicos al usuario cliente
+                String grantClientSQL = String.format(
+                    "GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, DROP, INDEX, ALTER ON `%s`.* TO '%s'@'%%'",
+                    schemaName, userName
+                );
+                statement.executeUpdate(grantClientSQL);
+                logger.info("✅ Permisos otorgados a usuario cliente: " + userName);
+                
+                // 3. Asegurar que root tenga todos los permisos
+                String grantRootSQL = String.format("GRANT ALL PRIVILEGES ON `%s`.* TO 'root'@'%%'", schemaName);
+                statement.executeUpdate(grantRootSQL);
+                logger.info("✅ Permisos completos otorgados a usuario root");
+                
+                // 4. Aplicar cambios
+                statement.executeUpdate("FLUSH PRIVILEGES");
+                logger.info("✅ Privilegios aplicados exitosamente");
+                
+            }
+        } catch (Exception e) {
+            logger.severe("❌ Error ejecutando comandos SQL: " + e.getMessage());
+            throw e;
+        }
+        
+        logger.info("✅ Esquema " + schemaName + " creado y configurado automáticamente");
+    }
+
+    /**
+     * Obtiene la contraseña del usuario root desde Secret Manager
+     */
+    private String getRootPassword() throws Exception {
+        try {
+            String secretName = String.format("projects/%s/secrets/mysql-root-password/versions/latest", PROJECT_ID);
+            String rootPassword = secretClient.accessSecretVersion(secretName)
+                .getPayload().getData().toStringUtf8();
+            logger.info("✅ Contraseña de root obtenida desde Secret Manager");
+            return rootPassword;
+        } catch (Exception e) {
+            logger.severe("❌ Error obteniendo contraseña de root: " + e.getMessage());
+            logger.info("💡 Asegúrate de que existe el secret 'mysql-root-password' en Secret Manager");
+            throw e;
+        }
+    }
+
+    /**
+     * Crear secrets para conexión al esquema específico
+     */
+    private void createSchemaConnectionSecrets(String schemaName, String userName, String password) throws Exception {
+        String secretPrefix = "marketplace-schema-" + schemaName;
+        
+        // Crear JDBC URL específica para el esquema
+        String jdbcUrl = String.format(
+            "jdbc:mysql://google/%s?cloudSqlInstance=%s:%s:%s&socketFactory=com.google.cloud.sql.mysql.SocketFactory&useSSL=false&allowPublicKeyRetrieval=true",
+            SCHEMAS_DATABASE, PROJECT_ID, REGION, INSTANCE_ID
+        );
+        
+        // Crear secrets individuales
+        createSecret(secretPrefix + "-jdbc-url", jdbcUrl, "JDBC URL for schema " + schemaName);
+        createSecret(secretPrefix + "-username", userName, "Username for schema " + schemaName);
+        createSecret(secretPrefix + "-password", password, "Password for schema " + schemaName);
+        
+        // Crear secret con toda la información de conexión
+        SchemaConnectionInfo connectionInfo = new SchemaConnectionInfo(jdbcUrl, userName, password, schemaName);
+        String connectionInfoJson = gson.toJson(connectionInfo);
+        createSecret(secretPrefix + "-connection-info", connectionInfoJson, "Complete connection info for schema " + schemaName);
+        
+        logger.info("✅ Todos los secrets creados exitosamente para esquema: " + schemaName);
     }
 
     private void createSecret(String secretId, String secretValue, String description) throws Exception {
@@ -263,21 +401,23 @@ public class DBProvisioningFunction implements CloudEventsFunction {
         }
     }
 
-    // Clase interna para el JSON de información de conexión
-    private static class ConnectionInfo {
+    // Clase interna para el JSON de información de conexión de esquemas
+    private static class SchemaConnectionInfo {
         public final String jdbcUrl;
         public final String username;
         public final String password;
+        public final String schemaName;
         public final String databaseName;
         public final String instanceId;
         public final String projectId;
         public final String region;
         
-        public ConnectionInfo(String jdbcUrl, String username, String password, String databaseName) {
+        public SchemaConnectionInfo(String jdbcUrl, String username, String password, String schemaName) {
             this.jdbcUrl = jdbcUrl;
             this.username = username;
             this.password = password;
-            this.databaseName = databaseName;
+            this.schemaName = schemaName;
+            this.databaseName = SCHEMAS_DATABASE;
             this.instanceId = INSTANCE_ID;
             this.projectId = PROJECT_ID;
             this.region = REGION;
