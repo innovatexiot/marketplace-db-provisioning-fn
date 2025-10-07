@@ -55,7 +55,7 @@ public class DBProvisioningFunction implements CloudEventsFunction {
     }
 
     private static final String PROJECT_ID = getProjectId();
-    private static final String INSTANCE_ID = "innovatex-marketplace-master";
+    private static final String INSTANCE_ID = "andevs-marketplace-master";
     private static final String REGION = "us-east1"; // Región de la instancia SQL
 
     private final SQLAdmin sqlAdmin;
