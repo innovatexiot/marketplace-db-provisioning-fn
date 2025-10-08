@@ -17,6 +17,7 @@ steps:
           --runtime="java17" \
           --source="." \
           --entry-point="${_ENTRY_POINT}" \
+          --memory="512MB" \
           --trigger-event-filters="type=google.cloud.firestore.document.v1.created" \
           --trigger-event-filters="database=${_DATABASE_NAME}" \
           --trigger-event-filters-path-pattern="document=${_DOCUMENT_PATH}" \
