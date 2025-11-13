@@ -59,6 +59,7 @@ public class DBProvisioningFunction implements CloudEventsFunction {
     private static final String PROJECT_ID = getProjectId();
     private static final String INSTANCE_ID = "andevs-marketplace-master";
     private static final String REGION = "us-east1"; // Región de la instancia SQL
+    private static final String FIRESTORE_DATABASE = "andevs-ecommerce"; // Base de datos Firestore
 
     private final SQLAdmin sqlAdmin;
     private final SecretManagerServiceClient secretClient;
@@ -90,10 +91,15 @@ public class DBProvisioningFunction implements CloudEventsFunction {
         // Inicializa el cliente de Secret Manager
         this.secretClient = SecretManagerServiceClient.create();
         
-        // Inicializa el cliente de Firestore
-        this.firestore = FirestoreOptions.getDefaultInstance().getService();
+        // Inicializa el cliente de Firestore con la base de datos específica
+        this.firestore = FirestoreOptions.newBuilder()
+                .setProjectId(PROJECT_ID)
+                .setDatabaseId(FIRESTORE_DATABASE)
+                .build()
+                .getService();
         
         logger.info("✅ SQLAdmin, SecretManager y Firestore clientes inicializados correctamente");
+        logger.info("📚 Firestore Database: " + FIRESTORE_DATABASE);
     }
 
     @Override
