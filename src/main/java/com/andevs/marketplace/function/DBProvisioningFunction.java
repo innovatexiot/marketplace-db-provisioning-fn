@@ -7,23 +7,25 @@ import com.google.api.services.sqladmin.model.Database;
 import com.google.api.services.sqladmin.model.User;
 import com.google.auth.http.HttpCredentialsAdapter;
 import com.google.auth.oauth2.GoogleCredentials;
+import com.google.cloud.firestore.Firestore;
+import com.google.cloud.firestore.FirestoreOptions;
 import com.google.cloud.functions.CloudEventsFunction;
 import com.google.cloud.secretmanager.v1.CreateSecretRequest;
 import com.google.cloud.secretmanager.v1.ProjectName;
 import com.google.cloud.secretmanager.v1.Secret;
 import com.google.cloud.secretmanager.v1.SecretManagerServiceClient;
-import com.google.cloud.secretmanager.v1.SecretName;
 import com.google.cloud.secretmanager.v1.SecretPayload;
 import com.google.cloud.secretmanager.v1.AddSecretVersionRequest;
 import com.google.cloud.secretmanager.v1.Replication;
 import com.google.events.cloud.firestore.v1.DocumentEventData;
-import com.google.gson.Gson;
 import com.google.protobuf.ByteString;
 import io.cloudevents.CloudEvent;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
-import java.util.UUID;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.ExecutionException;
 import java.util.logging.Logger;
 
 public class DBProvisioningFunction implements CloudEventsFunction {
@@ -60,9 +62,10 @@ public class DBProvisioningFunction implements CloudEventsFunction {
 
     private final SQLAdmin sqlAdmin;
     private final SecretManagerServiceClient secretClient;
-    private final Gson gson = new Gson();
+    private final Firestore firestore;
     private static final Logger logger = Logger.getLogger(DBProvisioningFunction.class.getName());
 
+    @SuppressWarnings("deprecation")
     public DBProvisioningFunction() throws Exception {
         // Log de inicialización
         logger.info("Inicializando DBProvisioningFunction con PROJECT_ID: " + PROJECT_ID + 
@@ -87,7 +90,10 @@ public class DBProvisioningFunction implements CloudEventsFunction {
         // Inicializa el cliente de Secret Manager
         this.secretClient = SecretManagerServiceClient.create();
         
-        logger.info("✅ SQLAdmin y SecretManager clientes inicializados correctamente");
+        // Inicializa el cliente de Firestore
+        this.firestore = FirestoreOptions.getDefaultInstance().getService();
+        
+        logger.info("✅ SQLAdmin, SecretManager y Firestore clientes inicializados correctamente");
     }
 
     @Override
@@ -105,6 +111,11 @@ public class DBProvisioningFunction implements CloudEventsFunction {
             DocumentEventData firestoreEventData = DocumentEventData.parseFrom(event.getData().toBytes());
             var document = firestoreEventData.getValue();
             var documentData = document.getFieldsMap();
+            
+            // Extraer document ID del recurso Firestore
+            String documentName = document.getName(); // e.g., projects/PROJECT/databases/(default)/documents/db-provisioning-requests/docId
+            String documentId = extractDocumentId(documentName);
+            logger.info("Document ID extraído: " + documentId);
             
             logger.info("Documento de Firestore recibido con " + documentData.size() + " campos");
             
@@ -124,7 +135,10 @@ public class DBProvisioningFunction implements CloudEventsFunction {
             logger.info("Parámetros generados - Database: " + dbName + ", User: " + userName);
 
             // Ejecutar aprovisionamiento paso a paso
-            executeProvisioningSteps(dbName, userName, password);
+            String secretPasswordRef = executeProvisioningSteps(dbName, userName, password);
+
+            // Actualizar documento Firestore: eliminar password y agregar secretPasswordRef
+            updateProvisioningDocument(documentId, secretPasswordRef);
 
             logger.info("=== PROVISIONING COMPLETADO EXITOSAMENTE para cliente: " + clientName + " ===");
 
@@ -138,6 +152,18 @@ public class DBProvisioningFunction implements CloudEventsFunction {
             }
             throw e;
         }
+    }
+
+    /**
+     * Extrae el document ID del nombre completo de Firestore
+     * Formato: projects/PROJECT/databases/(default)/documents/db-provisioning-requests/docId
+     */
+    private String extractDocumentId(String documentName) {
+        String[] parts = documentName.split("/");
+        if (parts.length > 0) {
+            return parts[parts.length - 1];
+        }
+        return null;
     }
 
     /**
@@ -185,8 +211,9 @@ public class DBProvisioningFunction implements CloudEventsFunction {
 
     /**
      * Ejecutar pasos de aprovisionamiento con manejo individual de errores
+     * Retorna la referencia al secret de password
      */
-    private void executeProvisioningSteps(String dbName, String userName, String password) throws Exception {
+    private String executeProvisioningSteps(String dbName, String userName, String password) throws Exception {
         try {
             // Paso 1: Crear base de datos
             logger.info("Creando base de datos: " + dbName);
@@ -200,10 +227,12 @@ public class DBProvisioningFunction implements CloudEventsFunction {
             sqlAdmin.users().insert(PROJECT_ID, INSTANCE_ID, user).execute();
             logger.info("✅ Usuario creado exitosamente: " + userName);
 
-            // Paso 3: Crear secrets
+            // Paso 3: Crear secrets y obtener la referencia
             logger.info("Creando secrets para base de datos: " + dbName);
-            createConnectionSecrets(dbName, userName, password);
+            String secretPasswordRef = createConnectionSecrets(dbName, userName, password);
             logger.info("✅ Secrets creados exitosamente para: " + dbName);
+            
+            return secretPasswordRef;
 
         } catch (Exception e) {
             logger.severe("Error en paso de aprovisionamiento: " + e.getMessage());
@@ -211,16 +240,18 @@ public class DBProvisioningFunction implements CloudEventsFunction {
         }
     }
 
-    private void createConnectionSecrets(String dbName, String userName, String password) throws Exception {
+    private String createConnectionSecrets(String dbName, String userName, String password) throws Exception {
         String secretPrefix = "marketplace-db-" + dbName;
         
-        // Crear secret para password
-        createSecret(secretPrefix + "-password", password, "Database password for " + dbName);
+        // Crear secret para password y obtener su referencia
+        String secretPasswordRef = createSecret(secretPrefix + "-password", password, "Database password for " + dbName);
         
         logger.info("✅ Todos los secrets creados exitosamente para: " + dbName);
+        
+        return secretPasswordRef;
     }
 
-    private void createSecret(String secretId, String secretValue, String description) throws Exception {
+    private String createSecret(String secretId, String secretValue, String description) throws Exception {
         try {
             logger.info("Creando secret: " + secretId);
             
@@ -242,7 +273,8 @@ public class DBProvisioningFunction implements CloudEventsFunction {
                     .build();
             
             Secret createdSecret = secretClient.createSecret(createSecretRequest);
-            logger.info("✅ Secret creado: " + createdSecret.getName());
+            String secretName = createdSecret.getName();
+            logger.info("✅ Secret creado: " + secretName);
             
             // Agregar la primera versión del secret con el valor
             SecretPayload payload = SecretPayload.newBuilder()
@@ -250,12 +282,15 @@ public class DBProvisioningFunction implements CloudEventsFunction {
                     .build();
             
             AddSecretVersionRequest addVersionRequest = AddSecretVersionRequest.newBuilder()
-                    .setParent(createdSecret.getName())
+                    .setParent(secretName)
                     .setPayload(payload)
                     .build();
             
             var version = secretClient.addSecretVersion(addVersionRequest);
             logger.info("✅ Version del secret creada: " + version.getName());
+            
+            // Retornar la referencia completa del secret
+            return secretName;
             
         } catch (Exception e) {
             logger.severe("❌ Error creando secret " + secretId + ": " + e.getMessage());
@@ -263,25 +298,41 @@ public class DBProvisioningFunction implements CloudEventsFunction {
         }
     }
 
-    // Clase interna para el JSON de información de conexión
-    private static class ConnectionInfo {
-        public final String jdbcUrl;
-        public final String username;
-        public final String password;
-        public final String databaseName;
-        public final String instanceId;
-        public final String projectId;
-        public final String region;
-        
-        public ConnectionInfo(String jdbcUrl, String username, String password, String databaseName) {
-            this.jdbcUrl = jdbcUrl;
-            this.username = username;
-            this.password = password;
-            this.databaseName = databaseName;
-            this.instanceId = INSTANCE_ID;
-            this.projectId = PROJECT_ID;
-            this.region = REGION;
+    /**
+     * Actualiza el documento Firestore:
+     * - Elimina el campo 'password' (por seguridad)
+     * - Agrega el campo 'passwordSecretRef' con la referencia al secret
+     */
+    private void updateProvisioningDocument(String documentId, String secretPasswordRef) {
+        try {
+            if (documentId == null || documentId.isEmpty()) {
+                logger.warning("Document ID es nulo o vacío, no se puede actualizar el documento");
+                return;
+            }
+            
+            logger.info("Actualizando documento Firestore: " + documentId);
+            
+            // Crear mapa de actualización
+            Map<String, Object> updates = new HashMap<>();
+            updates.put("password", com.google.cloud.firestore.FieldValue.delete()); // Eliminar el campo password
+            updates.put("passwordSecretRef", secretPasswordRef); // Agregar referencia al secret
+            updates.put("provisioningStatus", "completed"); // Opcional: marcar como completado
+            updates.put("provisioningTimestamp", com.google.cloud.firestore.FieldValue.serverTimestamp()); // Timestamp del servidor
+            
+            // Actualizar el documento
+            firestore.collection("db-provisioning-requests")
+                    .document(documentId)
+                    .update(updates)
+                    .get(); // Bloquear hasta que se complete la actualización
+            
+            logger.info("✅ Documento Firestore actualizado exitosamente: " + documentId);
+            
+        } catch (ExecutionException | InterruptedException e) {
+            logger.severe("❌ Error actualizando documento Firestore " + documentId + ": " + e.getMessage());
+            // No relanzar la excepción para no comprometer todo el flujo si la actualización de Firestore falla
+            logger.warning("La función continuará a pesar del error en la actualización de Firestore");
         }
     }
+
 }
 
